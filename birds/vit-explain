@@ -1,0 +1,91 @@
+import argparse
+import sys
+import torch
+from PIL import Image
+from torchvision import transforms
+import numpy as np
+import cv2
+from maxvit import MaxViT
+from vit_rollout import VITAttentionRollout
+
+
+# def get_args():
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument(
+#         "--use_cuda",
+#         action="store_true",
+#         default=False,
+#         help="Use NVIDIA GPU acceleration",
+#     )
+#     parser.add_argument(
+#         "--image_path", type=str, default="./examples/both.png", help="Input image path"
+#     )
+#     parser.add_argument(
+#         "--head_fusion",
+#         type=str,
+#         default="max",
+#         help="How to fuse the attention heads for attention rollout. \
+#                         Can be mean/max/min",
+#     )
+#     parser.add_argument(
+#         "--discard_ratio",
+#         type=float,
+#         default=0.9,
+#         help="How many of the lowest 14x14 attention paths should we discard",
+#     )
+#     parser.add_argument(
+#         "--category_index",
+#         type=int,
+#         default=None,
+#         help="The category index for gradient rollout",
+#     )
+#     args = parser.parse_args()
+#     args.use_cuda = args.use_cuda and torch.cuda.is_available()
+#     if args.use_cuda:
+#         print("Using GPU")
+#     else:
+#         print("Using CPU")
+
+#     return args
+
+
+def show_mask_on_image(img, mask):
+    img = np.float32(img) / 255
+    heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)  # type: ignore
+    heatmap = np.float32(heatmap) / 255
+    cam = heatmap + np.float32(img)
+    cam = cam / np.max(cam)
+    return np.uint8(255 * cam)
+
+
+if __name__ == "__main__":
+    model = MaxViT()
+    model.to("cuda")
+    model.load_state_dict(torch.load("./net.pt"))
+    model.eval()
+
+    transform = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        ]
+    )
+    img = Image.open(
+        "D:\\Github\\Altria-repository\\transformer\\birds\\valid\\ABBOTTS BABBLER\\1.jpg"
+    )
+    img = img.resize((224, 224))
+    input_tensor = transform(img).unsqueeze(0)  # type: ignore
+    input_tensor = input_tensor.cuda()
+    attention_rollout = VITAttentionRollout(model, head_fusion="max", discard_ratio=0.9)
+    mask = attention_rollout(input_tensor)
+    name = "attention_rollout_{:.3f}_{}.png".format(0.9, "max")
+
+    np_img = np.array(img)[:, :, ::-1]
+    mask = cv2.resize(mask, (np_img.shape[1], np_img.shape[0]))
+    mask = show_mask_on_image(np_img, mask)
+    cv2.imshow("Input Image", np_img)
+    cv2.imshow(name, mask)  # type: ignore
+    cv2.imwrite("input.png", np_img)
+    cv2.imwrite(name, mask)  # type: ignore
+    cv2.waitKey(-1)
